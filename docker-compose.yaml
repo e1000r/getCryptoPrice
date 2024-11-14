@@ -2,12 +2,6 @@ services:
   getcriptoprice:
     build: .
     container_name: getCriptoPrice
-    networks:
-      - bridge_network
     restart: always
     volumes:
       - .:/app
-
-networks:
-  bridge_network:
-    driver: bridge
