@@ -3,5 +3,6 @@ services:
     build: .
     container_name: getCriptoPrice
     restart: always
+    network_mode: bridge
     volumes:
       - .:/app
