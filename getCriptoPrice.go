@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,12 +12,28 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 const (
 	binanceBaseURL = "https://api.binance.com/api/v3/ticker/price?symbol="
 	checkInterval  = 60 * time.Second
 )
+
+func ensureTableExists(db *sql.DB) {
+	query := `
+	CREATE TABLE IF NOT EXISTS asset_prices (
+		id SERIAL PRIMARY KEY,
+		symbol VARCHAR(20) NOT NULL,
+		price NUMERIC(15, 6) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatalf("Error creating table: %v", err)
+	}
+	fmt.Println("Table asset_prices is ready.")
+}
 
 // Structure for the asset price in the Binance API
 type BinancePrice struct {
@@ -48,16 +65,23 @@ func getAssetPrice(symbol string) (float64, error) {
 }
 
 // Function to send a message via Telegram
-func sendTelegramMessage(token, chatID, message string) error {
-	telegramURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	client := resty.New()
+// func sendTelegramMessage(token, chatID, message string) error {
+// 	telegramURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+// 	client := resty.New()
 
-	_, err := client.R().
-		SetQueryParams(map[string]string{
-			"chat_id": chatID,
-			"text":    message,
-		}).
-		Get(telegramURL)
+// 	_, err := client.R().
+// 		SetQueryParams(map[string]string{
+// 			"chat_id": chatID,
+// 			"text":    message,
+// 		}).
+// 		Get(telegramURL)
+// 	return err
+// }
+
+// Save price data into the database
+func savePrice(db *sql.DB, asset string, price float64) error {
+	query := "INSERT INTO asset_prices (symbol, price, created_at) VALUES ($1, $2, $3)"
+	_, err := db.Exec(query, asset, price, time.Now())
 	return err
 }
 
@@ -68,8 +92,18 @@ func main() {
 		log.Fatalf("Error loading the .env file: %v", err)
 	}
 
-	telegramToken := os.Getenv("TELEGRAM_TOKEN")
-	telegramChatID := os.Getenv("TELEGRAM_CHAT_ID")
+	// Connect to the database
+	db, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalf("Error connecting to the database: %v", err)
+	}
+	defer db.Close()
+
+	// Ensure that the table exists
+	ensureTableExists(db)
+
+	// telegramToken := os.Getenv("TELEGRAM_TOKEN")
+	// telegramChatID := os.Getenv("TELEGRAM_CHAT_ID")
 
 	// Load the asset list and price limits
 	assets := strings.Split(os.Getenv("ASSETS"), ",")
@@ -81,7 +115,7 @@ func main() {
 	for i, thresholdStr := range maxThresholdStrs {
 		maxThresholds[i], err = strconv.ParseFloat(thresholdStr, 64)
 		if err != nil {
-			log.Fatalf("Erro ao converter MAX_THRESHOLDS: %v", err)
+			log.Fatalf("Error converting MAX_THRESHOLDS: %v", err)
 		}
 	}
 
@@ -89,7 +123,7 @@ func main() {
 	for i, thresholdStr := range minThresholdStrs {
 		minThresholds[i], err = strconv.ParseFloat(thresholdStr, 64)
 		if err != nil {
-			log.Fatalf("Erro ao converter MIN_THRESHOLDS: %v", err)
+			log.Fatalf("Error converting MIN_THRESHOLDS: %v", err)
 		}
 	}
 
@@ -107,23 +141,29 @@ func main() {
 
 			fmt.Printf("Current price of %s: $%.2f\n", asset, price)
 
+			// Save the price to the database
+			err = savePrice(db, asset, price)
+			if err != nil {
+				log.Printf("Error saving price to database for %s: %v", asset, err)
+			}
+
 			// Check if the price is above the maximum limit or below the minimum limit
 			if price >= maxThresholds[i] {
-				message := fmt.Sprintf("Alert: the price of asset %s has reached the maximum value of $%.2f", asset, price)
-				err = sendTelegramMessage(telegramToken, telegramChatID, message)
-				if err != nil {
-					log.Printf("Error sending message to Telegram for %s: %v", asset, err)
-				} else {
-					log.Println("Message sent:", message)
-				}
+				// message := fmt.Sprintf("Alert: the price of asset %s has reached the maximum value of $%.2f", asset, price)
+				// err = sendTelegramMessage(telegramToken, telegramChatID, message)
+				// if err != nil {
+				// 	log.Printf("Error sending message to Telegram for %s: %v", asset, err)
+				// } else {
+				// 	log.Println("Message sent:", message)
+				// }
 			} else if price <= minThresholds[i] {
-				message := fmt.Sprintf("Alert: the price of asset %s has reached the minimum value of $%.2f", asset, price)
-				err = sendTelegramMessage(telegramToken, telegramChatID, message)
-				if err != nil {
-					log.Printf("Error sending message to Telegram for %s: %v", asset, err)
-				} else {
-					log.Println("Message sent:", message)
-				}
+				// message := fmt.Sprintf("Alert: the price of asset %s has reached the minimum value of $%.2f", asset, price)
+				// err = sendTelegramMessage(telegramToken, telegramChatID, message)
+				// if err != nil {
+				// 	log.Printf("Error sending message to Telegram for %s: %v", asset, err)
+				// } else {
+				// 	log.Println("Message sent:", message)
+				// }
 			}
 		}
 		time.Sleep(checkInterval)
