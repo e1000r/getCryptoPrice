@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -92,6 +93,34 @@ func savePrice(db *sql.DB, asset string, price float64, variation float64) error
 	return err
 }
 
+func apiGetPrices(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		symbol := r.URL.Query().Get("symbol")
+		if symbol == "" {
+			http.Error(w, "'symbol' parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		var binancePrice BinancePrice
+		err := db.QueryRow("SELECT symbol, price, variation FROM asset_prices WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1", symbol).Scan(&binancePrice.Symbol, &binancePrice.Price, &binancePrice.Variation)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Symbol not found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			http.Error(w, "Error fetching data", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(binancePrice)
+	}
+}
+
 func main() {
 	// Load environment variables from the .env file
 	err := godotenv.Load()
@@ -137,6 +166,16 @@ func main() {
 	if len(assets) != len(maxThresholds) || len(assets) != len(minThresholds) {
 		log.Fatal("The number of assets and price limits do not match")
 	}
+
+	// Endpoint to access the database
+	http.HandleFunc("/get-prices", apiGetPrices(db))
+
+	go func() {
+		fmt.Println("Server starting at port 8080")
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Println("Error at starting server:", err)
+		}
+	}()
 
 	for {
 		for i, asset := range assets {

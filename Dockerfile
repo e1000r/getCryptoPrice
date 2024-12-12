@@ -19,7 +19,7 @@ COPY --from=builder /app/app .
 COPY --from=builder /app/.env .
 
 # Port where the application will run (optional)
-# EXPOSE 8080
+EXPOSE 8088
 
 # Command to start the application
 CMD ["./app"]
