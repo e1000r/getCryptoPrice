@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	binanceBaseURL = "https://api.binance.com/api/v3/ticker/price?symbol="
+	binanceBaseURL = "https://api.binance.com/api/v3/ticker/24hr?symbol="
 	checkInterval  = 60 * time.Second
 )
 
@@ -26,6 +26,7 @@ func ensureTableExists(db *sql.DB) {
 		id SERIAL PRIMARY KEY,
 		symbol VARCHAR(20) NOT NULL,
 		price NUMERIC(15, 6) NOT NULL,
+		variation NUMERIC(15, 6) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 	_, err := db.Exec(query)
@@ -37,31 +38,37 @@ func ensureTableExists(db *sql.DB) {
 
 // Structure for the asset price in the Binance API
 type BinancePrice struct {
-	Symbol string `json:"symbol"`
-	Price  string `json:"price"`
+	Symbol    string `json:"symbol"`
+	Price     string `json:"lastPrice"`
+	Variation string `json:"priceChangePercent"`
 }
 
 // Function to get the price of a specific asset on Binance
-func getAssetPrice(symbol string) (float64, error) {
+func getAssetPrice(symbol string) (float64, float64, error) {
 	client := resty.New()
 	url := binanceBaseURL + symbol
 	resp, err := client.R().Get(url)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	var binancePrice BinancePrice
 	err = json.Unmarshal(resp.Body(), &binancePrice)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	price, err := strconv.ParseFloat(binancePrice.Price, 64)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	return price, nil
+	variation, err := strconv.ParseFloat(binancePrice.Variation, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return price, variation, nil
 }
 
 // Function to send a message via Telegram
@@ -79,9 +86,9 @@ func getAssetPrice(symbol string) (float64, error) {
 // }
 
 // Save price data into the database
-func savePrice(db *sql.DB, asset string, price float64) error {
-	query := "INSERT INTO asset_prices (symbol, price, created_at) VALUES ($1, $2, $3)"
-	_, err := db.Exec(query, asset, price, time.Now())
+func savePrice(db *sql.DB, asset string, price float64, variation float64) error {
+	query := "INSERT INTO asset_prices (symbol, price, variation, created_at) VALUES ($1, $2, $3, $4)"
+	_, err := db.Exec(query, asset, price, variation, time.Now())
 	return err
 }
 
@@ -133,16 +140,16 @@ func main() {
 
 	for {
 		for i, asset := range assets {
-			price, err := getAssetPrice(asset)
+			price, variation, err := getAssetPrice(asset)
 			if err != nil {
 				log.Printf("Error getting asset price %s: %v", asset, err)
 				continue
 			}
 
-			fmt.Printf("Current price of %s: $%.2f\n", asset, price)
+			fmt.Printf("Current price of %s: $%.2f (Variation: %.2f%%)\n", asset, price, variation)
 
 			// Save the price to the database
-			err = savePrice(db, asset, price)
+			err = savePrice(db, asset, price, variation)
 			if err != nil {
 				log.Printf("Error saving price to database for %s: %v", asset, err)
 			}
