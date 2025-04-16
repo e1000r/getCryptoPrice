@@ -1,4 +1,4 @@
-module getCriptoPrice
+module getCryptoPrice
 
 go 1.23.2
 

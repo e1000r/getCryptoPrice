@@ -1,7 +1,7 @@
 services:
-  getcriptoprice:
+  getcryptoprice:
     build: .
-    container_name: getCriptoPrice
+    container_name: getCryptoPrice
     restart: always
     # network_mode: bridge
     networks:
