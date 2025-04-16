@@ -1,3 +1,4 @@
+# e1000r.com
 # Use the official Go image to compile the application
 FROM golang:1.23-alpine AS builder
 RUN apk add --no-cache gcc musl-dev

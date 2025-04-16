@@ -1,2 +1,7 @@
 .env
 .DS_Store
+Thumbs.db
+.vscode/
+/build/
+/bin/
+/dist/
